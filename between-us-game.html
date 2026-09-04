@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Between Us — 0 → 10</title>
+<style>
+*{box-sizing:border-box} body{margin:0;min-height:100vh;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:radial-gradient(circle at top,#3b2148 0,#17101f 45%,#0b0910 100%);color:#fff;display:flex;justify-content:center}
+.app{width:min(980px,100%);padding:28px 18px 40px}.brand{text-align:center;margin-bottom:20px}.brand h1{margin:0;font-size:34px;letter-spacing:-1px}.brand p{margin:6px 0;color:#cdbbd4}
+.card{background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(16px);border-radius:24px;padding:22px;box-shadow:0 20px 60px #0006}
+.hidden{display:none!important}.row{display:flex;gap:10px;flex-wrap:wrap}.btn{border:0;border-radius:14px;padding:13px 18px;background:#fff;color:#24152b;font-weight:800;cursor:pointer}.btn.secondary{background:#ffffff16;color:#fff;border:1px solid #ffffff20}.btn.accent{background:linear-gradient(135deg,#ff78b7,#b77cff);color:#fff}.input{flex:1;min-width:220px;padding:13px 15px;border-radius:14px;border:1px solid #ffffff20;background:#0c0911;color:#fff;font-size:16px}
+.status{text-align:center;margin:12px 0 20px;color:#e7d8e9}.target{font-size:20px;text-align:center;margin:5px 0 18px}.target b{font-size:30px}.board{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:620px;margin:0 auto}.tile{aspect-ratio:1/1.2;border-radius:18px;border:1px solid #ffffff18;background:linear-gradient(145deg,#2c1938,#17101e);color:#fff;font-size:28px;font-weight:900;cursor:pointer;transition:.2s;box-shadow:inset 0 1px #fff1}.tile:hover{transform:translateY(-3px);background:linear-gradient(145deg,#41214f,#211529)}.tile.revealed{background:linear-gradient(145deg,#ff78b7,#9f65e9);transform:scale(.98)}.tile.wrong{animation:shake .35s}.tile.done{opacity:.75;cursor:default}
+@keyframes shake{25%{transform:translateX(-7px)}50%{transform:translateX(7px)}75%{transform:translateX(-4px)}}
+.info{display:flex;justify-content:space-between;gap:12px;margin:18px auto 0;max-width:620px;color:#cdbbd4;font-size:14px}.pill{background:#ffffff0e;border:1px solid #ffffff12;padding:9px 12px;border-radius:999px}
+.overlay{position:fixed;inset:0;background:#09070dcc;display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}.modal{width:min(520px,100%);text-align:center}.modal h2{font-size:34px;margin:8px}.wish{font-size:18px;line-height:1.5;color:#e7d8e9}.small{font-size:13px;color:#a996ad}.room{font-size:30px;letter-spacing:7px;font-weight:900;margin:12px}.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#fff;color:#1b1020;padding:11px 16px;border-radius:999px;font-weight:800;display:none;z-index:10}
+@media(max-width:560px){.board{grid-template-columns:repeat(3,1fr)}.brand h1{font-size:28px}.card{padding:15px}.tile{font-size:23px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><h1>Between Us ♥</h1><p>Can you make it from <b>0 → 10</b>?</p></div>
+
+  <section id="home" class="card">
+    <h2>Play together</h2>
+    <p class="small">Create a room and send the code to your person, or join their room.</p>
+    <div class="row" style="margin:16px 0">
+      <button class="btn accent" onclick="createRoom()">Create room</button>
+      <input id="joinCode" class="input" maxlength="8" placeholder="Room code">
+      <button class="btn secondary" onclick="joinRoom()">Join</button>
+    </div>
+    <p id="conn" class="small">Tip: both players can use the same page.</p>
+  </section>
+
+  <section id="lobby" class="card hidden" style="text-align:center">
+    <div class="small">ROOM CODE</div><div id="roomCode" class="room">—</div>
+    <button class="btn secondary" onclick="copyRoom()">Copy code</button>
+    <p id="lobbyText" class="status">Waiting for the other player…</p>
+  </section>
+
+  <section id="game" class="card hidden">
+    <div id="status" class="status">Your turn</div>
+    <div class="target">Find <b id="target">0</b></div>
+    <div id="board" class="board"></div>
+    <div class="info"><span class="pill">Round <b id="round">1</b></span><span class="pill">Turn: <b id="turnName">—</b></span></div>
+  </section>
+</div>
+
+<div id="overlay" class="overlay hidden"><div class="modal card">
+  <div class="small">ROUND WINNER</div><h2 id="winnerTitle">You won ♥</h2>
+  <p class="wish">The winner gets one wish.<br>Ask them a question, give them a challenge, or make a cute request.</p>
+  <div class="row" style="justify-content:center;margin-top:18px">
+    <button class="btn accent" onclick="newRound()">Play again</button>
+  </div>
+</div></div>
+<div id="toast" class="toast"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+let peer, conn, isHost=false, myName='You', otherName='Them';
+let state={target:0, revealed:[], order:[], turn:'host', round:1, locked:false};
+
+const $=id=>document.getElementById(id);
+function toast(t){$('toast').textContent=t;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1800)}
+function show(id){$(id).classList.remove('hidden')} function hide(id){$(id).classList.add('hidden')}
+function shuffled(){let a=[...Array(11).keys()];for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function roomId(){return 'between-us-'+Math.random().toString(36).slice(2,8).toUpperCase()}
+function createRoom(){
+ isHost=true; peer=new Peer(roomId()); peer.on('open',id=>{let code=id.replace('between-us-','');$('roomCode').textContent=code;hide('home');show('lobby');});
+ peer.on('connection',c=>{conn=c;setupConn();});
+ peer.on('error',e=>toast('Connection error — try again'));
+}
+function joinRoom(){
+ let code=$('joinCode').value.trim().toUpperCase(); if(!code)return;
+ isHost=false; peer=new Peer(); peer.on('open',()=>{conn=peer.connect('between-us-'+code,{reliable:true});setupConn();hide('home');show('lobby');});
+ peer.on('error',()=>toast('Could not join that room'));
+}
+function setupConn(){
+ conn.on('open',()=>{
+   conn.send({type:'hello',host:isHost});
+   if(isHost){$('lobbyText').textContent='Connected ♥ Starting…';setTimeout(startGame,700)}
+ });
+ conn.on('data',msg=>receive(msg));
+ conn.on('close',()=>{hide('game');show('lobby');$('lobbyText').textContent='Connection closed.'});
+}
+function copyRoom(){navigator.clipboard?.writeText($('roomCode').textContent).then(()=>toast('Room code copied ♥'))}
+function startGame(){state={target:0,revealed:[],order:shuffled(),turn:'host',round:1,locked:false};sendState();render()}
+function newRound(){hide('overlay'); if(isHost){state={target:0,revealed:[],order:shuffled(),turn:'host',round:state.round+1,locked:false};sendState();render()}else toast('Waiting for host…')}
+function sendState(){if(conn?.open)conn.send({type:'state',state})}
+function receive(m){
+ if(m.type==='hello' && !isHost){$('lobbyText').textContent='Connected ♥';}
+ if(m.type==='state'){state=m.state;render();hide('lobby');show('game')}
+ if(m.type==='action' && isHost)handleAction(m.index);
+ if(m.type==='result'){state=m.state;render();if(m.win){showWin(m.winner)}}
+}
+function handleAction(index){
+ if(state.locked||state.turn!=='host'||state.revealed.includes(index))return;
+ const value=state.order[index];
+ if(value===state.target){
+   state.revealed.push(index); state.target++;
+   if(state.target===11){state.locked=true;state.turn='done';sendState();render();setTimeout(()=>showWin('You'),300);return}
+ }else{
+   state.locked=true; sendState(); render(); setTimeout(()=>{
+     state.order=shuffled();state.revealed=[];state.target=0;state.locked=false;state.turn='guest';sendState();render();
+   },850);return;
+ }
+ state.turn='guest'; sendState(); render();
+}
+function clickTile(i){
+ if(state.locked||state.revealed.includes(i)||state.turn!=='guest')return;
+ conn?.send({type:'action',index:i});
+}
+function render(){
+ hide('lobby');show('game');$('target').textContent=state.target;$('round').textContent=state.round;
+ $('turnName').textContent=state.turn==='done'?'Finished':state.turn==='host'?(isHost?'You':'Them'):(isHost?'Them':'You');
+ $('status').textContent=state.locked?'Resetting the cards…':state.turn==='done'?'Round complete!':(state.turn===(isHost?'host':'guest')?'Your turn':'Their turn');
+ const b=$('board');b.innerHTML='';
+ state.order.forEach((v,i)=>{
+   const d=document.createElement('button');d.className='tile';
+   if(state.revealed.includes(i)){d.textContent=v;d.classList.add('revealed','done')}
+   else {d.textContent='?'; if(state.locked)d.classList.add('wrong')}
+   d.onclick=()=>clickTile(i);b.appendChild(d);
+ });
+}
+function showWin(who){
+ $('winnerTitle').textContent=(who==='You'?'You won ♥': 'They won ♥');
+ show('overlay');
+}
+</script>
+</body>
+</html>
